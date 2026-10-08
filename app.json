@@ -1,14 +1,8 @@
 {
   "expo": {
-    "name": "app1",
-    "slug": "app1",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "ios": {
-      "supportsTablet": true
-    },
+    "name": "SeuApp",
+    "slug": "seu-app"
+  },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -20,5 +14,4 @@
     "web": {
       "favicon": "./assets/favicon.png"
     }
-  }
 }
