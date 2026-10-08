@@ -21,6 +21,12 @@ export default function LoginScreen({ navigation }) {
 
   const { width, height } = useWindowDimensions();
 
+  // Função para acionar o login
+  const handleEntrar = () => {
+    // Você pode adicionar validação de e-mail e senha aqui no futuro
+    navigation.navigate('Home');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
 
@@ -143,12 +149,9 @@ export default function LoginScreen({ navigation }) {
             {/* ENTRAR */}
             <TouchableOpacity
               style={styles.botao}
-            >
-
-              <Text style={styles.botaoTexto}>
-                ENTRAR
-              </Text>
-
+              onPress={handleEntrar} // <-- NAVEGA PARA A TELA HOME
+              >
+                <Text style={styles.botaoTexto}>ENTRAR</Text>
             </TouchableOpacity>
 
 

@@ -22,7 +22,7 @@ export default function RegisterScreen({ navigation }) {
   // Função para realizar o cadastro e navegar até a Home
   const handleCadastrar = () => {
     if (navigation) {
-      navigation.navigate('Home');
+      navigation.navigate('Login');
     }
   };
 
