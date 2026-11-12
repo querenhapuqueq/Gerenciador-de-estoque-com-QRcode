@@ -9,28 +9,132 @@ import {
   Platform,
   ScrollView,
   Image,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { cadastrarUsuario } from '../database/database';
 
 export default function RegisterScreen({ navigation }) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [confirmarSenha, setConfirmarSenha] = useState('');
+  
+const ITERACOES = 210000;
 
-  // Função para realizar o cadastro e navegar até a Home
-  const handleCadastrar = () => {
-    if (navigation) {
-      navigation.navigate('Login');
+async function gerarHashSenha(senha) {
+  const saltBytes = await Crypto.getRandomBytesAsync(16);
+  const salt = bytesToHex(saltBytes);
+
+  const hash = pbkdf2(
+    sha256,
+    utf8ToBytes(senha),
+    saltBytes,
+    {
+      c: ITERACOES,
+      dkLen: 32
     }
-  };
+  );
 
+  return `pbkdf2$${ITERACOES}$${salt}$${bytesToHex(hash)}`;
+}
+
+async function verificarSenha(senha, senhaArmazenada) {
+  const partes = senhaArmazenada.split('$');
+
+  if (partes.length !== 4 || partes[0] !== 'pbkdf2') {
+    return false;
+  }
+
+  const iteracoes = Number(partes[1]);
+  const salt = partes[2];
+  const hashOriginal = partes[3];
+
+  if (
+    !Number.isInteger(iteracoes) ||
+    iteracoes < 100000 ||
+    iteracoes > 1000000 ||
+    !/^[0-9a-f]{32}$/.test(salt) ||
+    !/^[0-9a-f]{64}$/.test(hashOriginal)
+  ) {
+    return false;
+  }
+
+  const hashCalculado = bytesToHex(
+    pbkdf2(
+      sha256,
+      utf8ToBytes(senha),
+      Uint8Array.from(
+        salt.match(/.{2}/g).map(byte => parseInt(byte, 16))
+      ),
+      {
+        c: iteracoes,
+        dkLen: 32
+      }
+    )
+  );
+
+  return hashCalculado === hashOriginal;
+}
+
+
+
+// Função para realizar o cadastro e navegar até a Home
+  
+const handleCadastrar = async () => {
+  if (!nome.trim() || !email.trim() || !senha || !confirmarSenha) {
+    Alert.alert('Atenção', 'Preencha todos os campos.');
+    return;
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    Alert.alert('Atenção', 'Digite um e-mail válido.');
+    return;
+  }
+
+  if (senha.length < 8) {
+    Alert.alert(
+      'Atenção',
+      'A senha precisa ter pelo menos 8 caracteres.'
+    );
+    return;
+  }
+
+  if (senha !== confirmarSenha) {
+    Alert.alert('Atenção', 'As senhas não são iguais.');
+    return;
+  }
+
+  try {
+    await cadastrarUsuario(nome, email, senha);
+
+    Alert.alert(
+      'Cadastro realizado!',
+      'Seu usuário foi cadastrado com sucesso.',
+      [
+        {
+          text: 'OK',
+          onPress: () => navigation.navigate('Login')
+        }
+      ]
+    );
+
+    setNome('');
+    setEmail('');
+    setSenha('');
+    setConfirmarSenha('');
+
+  } catch (error) {
+    Alert.alert(
+      'Erro no cadastro',
+      error.message || 'Não foi possível realizar o cadastro.'
+    );
+  }
+};
   // Função para voltar ao Login
   const handleIrParaLogin = () => {
-    if (navigation) {
-      navigation.navigate('Login');
-    }
+    navigation.navigate('Login');
   };
 
   return (

@@ -1,8 +1,11 @@
+
 {
   "expo": {
     "name": "SeuApp",
-    "slug": "seu-app"
-  },
+    "slug": "seu-app",
+    "plugins": [
+      "expo-sqlite"
+    ],
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -14,4 +17,5 @@
     "web": {
       "favicon": "./assets/favicon.png"
     }
+  }
 }
