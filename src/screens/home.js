@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,93 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import {
+  listarMovimentacoesRecentes,
+  obterResumoDashboard
+} from '../database/database';
 
-export default function HomeScreen({ navigation }) {
+function obterDataAtualFormatada() {
+  const meses = [
+    'JANEIRO',
+    'FEVEREIRO',
+    'MARÇO',
+    'ABRIL',
+    'MAIO',
+    'JUNHO',
+    'JULHO',
+    'AGOSTO',
+    'SETEMBRO',
+    'OUTUBRO',
+    'NOVEMBRO',
+    'DEZEMBRO'
+  ];
+
+  const hoje = new Date();
+  const dia = String(hoje.getDate()).padStart(2, '0');
+  const mes = meses[hoje.getMonth()];
+  const ano = hoje.getFullYear();
+
+  return `${dia} ${mes} DE ${ano}`;
+}
+
+export default function HomeScreen({ navigation, route }) {
+  const [nomeUsuario, setNomeUsuario] = useState('Usuário');
+  const [dataHoje, setDataHoje] = useState(obterDataAtualFormatada());
+  const [recentes, setRecentes] = useState([]);
+  const [resumo, setResumo] = useState({
+    movimentoDia: 0,
+    entradas: 0,
+    saidas: 0,
+    ajustes: 0
+  });
+
+  useEffect(() => {
+    const nomeCompleto = route?.params?.usuario?.nome;
+    if (nomeCompleto && nomeCompleto.trim() !== '') {
+      const primeiroNome = nomeCompleto.trim().split(' ')[0];
+      const nomeFormatado =
+        primeiroNome.charAt(0).toUpperCase() + primeiroNome.slice(1);
+      setNomeUsuario(nomeFormatado);
+    } else {
+      setNomeUsuario('Usuário');
+    }
+  }, [route?.params?.usuario]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setDataHoje(obterDataAtualFormatada());
+
+      async function carregarDashboard() {
+        try {
+          const [ultimas, totais] = await Promise.all([
+            listarMovimentacoesRecentes(5),
+            obterResumoDashboard()
+          ]);
+          setRecentes(ultimas);
+          setResumo(totais);
+        } catch (error) {
+          console.error('Erro ao carregar dashboard:', error);
+        }
+      }
+      carregarDashboard();
+    }, [])
+  );
+
+  const obterEstiloMovimentacao = (tipo) => {
+    switch (tipo) {
+      case 'saida':
+        return { cor: '#ff1744', icone: 'chevron-up', sinal: '-' };
+      case 'ajuste do dia':
+        return { cor: '#ffb703', icone: 'sync', sinal: '' };
+      case 'reservado':
+        return { cor: '#3b82f6', icone: 'bookmark', sinal: '' };
+      case 'entrada':
+      default:
+        return { cor: '#009688', icone: 'chevron-down', sinal: '+' };
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.innerContainer}>
@@ -30,60 +115,106 @@ export default function HomeScreen({ navigation }) {
 
           {/* CABEÇALHO */}
           <View style={styles.header}>
-            <Text style={styles.saudacao}>Olá, Queren!</Text>
-            <Text style={styles.data}>29 JULHO DE 2026</Text>
+            <Text style={styles.saudacao}>Olá, {nomeUsuario}!</Text>
+            <Text style={styles.data}>{dataHoje}</Text>
           </View>
 
           {/* BARRA DE PESQUISA */}
-          <View style={styles.searchContainer}>
+          <TouchableOpacity
+            style={styles.searchContainer}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('ListaTecidos')}
+          >
             <Ionicons name="search-outline" size={18} color="#333" />
             <TextInput
               style={styles.searchInput}
-              placeholder="Pesquise QR CODE"
+              placeholder="Pesquise tecido ou QR CODE"
               placeholderTextColor="#666"
+              editable={false}
+              pointerEvents="none"
             />
             <MaterialCommunityIcons name="qrcode-scan" size={20} color="#333" />
-          </View>
+          </TouchableOpacity>
 
-          {/* GRID DE CARDS/MÉTRICAS */}
+          {/* GRID DE CARDS/MÉTRICAS COM FUNÇÕES ESPECÍFICAS */}
           <View style={styles.cardsGrid}>
-            {/* Card: Movimento do Dia */}
-            <TouchableOpacity style={styles.card}>
+            {/* Card 1: Movimento do Dia -> Mostra só movimentos de hoje */}
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() =>
+                navigation.navigate('HistoricoMovimentacoes', {
+                  filtro: 'hoje',
+                  titulo: 'MOVIMENTO DO DIA'
+                })
+              }
+            >
               <View style={styles.cardHeader}>
                 <Ionicons name="stats-chart-outline" size={32} color="#000" />
                 <Text style={styles.cardTitle}>MOVIMENTO{"\n"}DO DIA</Text>
               </View>
-              <Text style={[styles.cardValue, { color: '#0066ff' }]}>100</Text>
+              <Text style={[styles.cardValue, { color: '#0066ff' }]}>
+                {resumo.movimentoDia}
+              </Text>
               <Text style={[styles.cardArrow, { color: '#0066ff' }]}>&gt;</Text>
             </TouchableOpacity>
 
-            {/* Card: Entrada */}
-            <TouchableOpacity style={styles.card}>
+            {/* Card 2: Entrada -> Mostra só as ENTRADAS */}
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() =>
+                navigation.navigate('HistoricoMovimentacoes', {
+                  filtro: 'entrada',
+                  titulo: 'HISTÓRICO DE ENTRADAS'
+                })
+              }
+            >
               <View style={styles.cardHeader}>
                 <MaterialCommunityIcons name="package-variant-closed-plus" size={32} color="#000" />
                 <Text style={styles.cardTitle}>ENTRADA</Text>
               </View>
-              <Text style={[styles.cardValue, { color: '#00a884' }]}>100</Text>
+              <Text style={[styles.cardValue, { color: '#00a884' }]}>
+                {resumo.entradas}
+              </Text>
               <Text style={[styles.cardArrow, { color: '#00a884' }]}>&gt;</Text>
             </TouchableOpacity>
 
-            {/* Card: Saída */}
-            <TouchableOpacity style={styles.card}>
+            {/* Card 3: Saída -> Mostra só as SAÍDAS */}
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() =>
+                navigation.navigate('HistoricoMovimentacoes', {
+                  filtro: 'saida',
+                  titulo: 'HISTÓRICO DE SAÍDAS'
+                })
+              }
+            >
               <View style={styles.cardHeader}>
                 <MaterialCommunityIcons name="home-export-outline" size={32} color="#000" />
                 <Text style={styles.cardTitle}>SAÍDA</Text>
               </View>
-              <Text style={[styles.cardValue, { color: '#ff2a4b' }]}>100</Text>
+              <Text style={[styles.cardValue, { color: '#ff2a4b' }]}>
+                {resumo.saidas}
+              </Text>
               <Text style={[styles.cardArrow, { color: '#ff2a4b' }]}>&gt;</Text>
             </TouchableOpacity>
 
-            {/* Card: Ajuste por Inventário */}
-            <TouchableOpacity style={styles.card}>
+            {/* Card 4: Ajuste por Inventário -> Mostra só os AJUSTES */}
+            <TouchableOpacity
+              style={styles.card}
+              onPress={() =>
+                navigation.navigate('HistoricoMovimentacoes', {
+                  filtro: 'ajuste do dia',
+                  titulo: 'AJUSTE POR INVENTÁRIO'
+                })
+              }
+            >
               <View style={styles.cardHeader}>
                 <Ionicons name="document-text-outline" size={32} color="#000" />
                 <Text style={styles.cardTitle}>AJUSTE POR{"\n"}INVENTÁRIO</Text>
               </View>
-              <Text style={[styles.cardValue, { color: '#ffb703' }]}>100</Text>
+              <Text style={[styles.cardValue, { color: '#ffb703' }]}>
+                {resumo.ajustes}
+              </Text>
               <Text style={[styles.cardArrow, { color: '#ffb703' }]}>&gt;</Text>
             </TouchableOpacity>
           </View>
@@ -91,74 +222,114 @@ export default function HomeScreen({ navigation }) {
           {/* SEÇÃO DE MOVIMENTAÇÕES RECENTES */}
           <View style={styles.recentesHeader}>
             <Text style={styles.recentesTitulo}>MOVIMENTAÇÕES RECENTES</Text>
-            <TouchableOpacity>
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate('HistoricoMovimentacoes', {
+                  filtro: 'todos',
+                  titulo: 'TODAS AS MOVIMENTAÇÕES'
+                })
+              }
+            >
               <Text style={styles.verMais}>VER MAIS &gt;</Text>
             </TouchableOpacity>
           </View>
 
-          {/* LISTA DE MOVIMENTAÇÕES */}
           <View style={styles.listaRecentes}>
-            {/* Item 1 */}
-            <View style={styles.itemRecente}>
-              <View style={[styles.iconCircle, { backgroundColor: '#009688' }]}>
-                <Ionicons name="chevron-down" size={20} color="#fff" />
+            {recentes.length === 0 ? (
+              <View style={styles.vazioBox}>
+                <Text style={styles.vazioTexto}>
+                  Nenhuma atualização recente registrada.
+                </Text>
               </View>
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemTipo}>ENTRADA</Text>
-                <Text style={styles.itemNome}>ZEUS 1 11</Text>
-              </View>
-              <Text style={styles.itemTempo}>+ 25 M</Text>
-              <Text style={styles.itemArrow}>&gt;</Text>
-            </View>
+            ) : (
+              recentes.map((item, index) => {
+                const estilo = obterEstiloMovimentacao(item.tipo);
+                const ultimoItem = index === recentes.length - 1;
+                const unidadeAbrev =
+                  item.produto_unidade === 'metros'
+                    ? 'M'
+                    : item.produto_unidade.toUpperCase();
 
-            {/* Item 2 */}
-            <View style={styles.itemRecente}>
-              <View style={[styles.iconCircle, { backgroundColor: '#ff1744' }]}>
-                <Ionicons name="chevron-up" size={20} color="#fff" />
-              </View>
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemTipo}>SAÍDA</Text>
-                <Text style={styles.itemNome}>HELIOS 2 12</Text>
-              </View>
-              <Text style={styles.itemTempo}>+ 50 M</Text>
-              <Text style={styles.itemArrow}>&gt;</Text>
-            </View>
+                const tituloProduto = item.produto_cor
+                  ? `${item.produto_nome} (${item.produto_cor})`
+                  : item.produto_nome;
 
-            {/* Item 3 */}
-            <View style={styles.itemRecente}>
-              <View style={[styles.iconCircle, { backgroundColor: '#009688' }]}>
-                <Ionicons name="chevron-down" size={20} color="#fff" />
-              </View>
-              <View style={styles.itemInfo}>
-                <Text style={styles.itemTipo}>ENTRADA</Text>
-                <Text style={styles.itemNome}>FLASH 110</Text>
-              </View>
-              <Text style={styles.itemTempo}>+ 1,50 M</Text>
-              <Text style={styles.itemArrow}>&gt;</Text>
-            </View>
+                return (
+                  <TouchableOpacity
+                    key={String(item.id)}
+                    style={[
+                      styles.itemRecente,
+                      ultimoItem && { borderBottomWidth: 0 }
+                    ]}
+                    onPress={() =>
+                      navigation.navigate('HistoricoMovimentacoes', {
+                        filtro: item.tipo,
+                        titulo: item.tipo.toUpperCase()
+                      })
+                    }
+                  >
+                    <View style={[styles.iconCircle, { backgroundColor: estilo.cor }]}>
+                      <Ionicons name={estilo.icone} size={20} color="#fff" />
+                    </View>
+
+                    <View style={styles.itemInfo}>
+                      <Text style={styles.itemTipo}>
+                        {item.tipo.toUpperCase()}
+                        {item.data_formatada ? ` • ${item.data_formatada}` : ''}
+                      </Text>
+                      <Text style={styles.itemNome} numberOfLines={1}>
+                        {tituloProduto.toUpperCase()}
+                      </Text>
+                      {item.observacao ? (
+                        <Text style={styles.itemObs} numberOfLines={1}>
+                          {item.observacao}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <Text style={[styles.itemTempo, { color: estilo.cor }]}>
+                      {estilo.sinal} {String(item.quantidade).replace('.', ',')} {unidadeAbrev}
+                    </Text>
+                    <Text style={styles.itemArrow}>&gt;</Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
         </ScrollView>
 
-        {/* BARRA DE NAVEGAÇÃO INFERIOR (BOTTOM BAR) */}
+        {/* BARRA DE NAVEGAÇÃO INFERIOR */}
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.navButton}>
             <MaterialCommunityIcons name="qrcode-scan" size={26} color="#000" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navButton}>
+          {/* Lista de Tecidos */}
+          <TouchableOpacity
+            style={styles.navButton}
+            onPress={() => navigation.navigate('ListaTecidos')}
+          >
             <Ionicons name="document-text-outline" size={26} color="#000" />
           </TouchableOpacity>
 
-          {/* Botão Home em Destaque */}
+          {/* Home */}
           <TouchableOpacity style={styles.navButtonHome}>
             <Ionicons name="home" size={28} color="#000" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navButton}>
-            <Ionicons name="notifications-outline" size={26} color="#000" />
+          {/* Cadastrar Novo Tecido */}
+          <TouchableOpacity
+            style={styles.navButton}
+            onPress={() => navigation.navigate('CadastroTecido')}
+          >
+            <Ionicons name="add-circle-outline" size={28} color="#000" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.navButton}>
+          {/* Trocar Usuário / Login */}
+          <TouchableOpacity
+            style={styles.navButton}
+            onPress={() => navigation.replace('Login')}
+          >
             <Ionicons name="person" size={26} color="#000" />
           </TouchableOpacity>
         </View>
@@ -181,8 +352,6 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 90,
   },
-
-  /* LOGO */
   logoContainer: {
     alignItems: 'center',
     marginBottom: 10,
@@ -191,8 +360,6 @@ const styles = StyleSheet.create({
     width: 90,
     height: 50,
   },
-
-  /* CABEÇALHO */
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -201,6 +368,7 @@ const styles = StyleSheet.create({
   },
   saudacao: {
     fontSize: 14,
+    fontWeight: '600',
     color: '#333',
   },
   data: {
@@ -208,8 +376,6 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: 'bold',
   },
-
-  /* BARRA DE PESQUISA */
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -227,8 +393,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
   },
-
-  /* GRID CARDS */
   cardsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -271,8 +435,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     alignSelf: 'flex-end',
   },
-
-  /* RECENTES */
   recentesHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -293,6 +455,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     paddingHorizontal: 12,
+  },
+  vazioBox: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  vazioTexto: {
+    fontSize: 12,
+    color: '#888',
   },
   itemRecente: {
     flexDirection: 'row',
@@ -322,8 +492,15 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
+  itemObs: {
+    fontSize: 9,
+    color: '#888',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
   itemTempo: {
     fontSize: 11,
+    fontWeight: '600',
     color: '#333',
     marginRight: 8,
   },
@@ -331,8 +508,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#0066ff',
   },
-
-  /* BOTTOM BAR CORRIGIDA */
   bottomBar: {
     position: 'absolute',
     bottom: 0,
