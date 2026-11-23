@@ -78,8 +78,6 @@ async function verificarSenha(senha, senhaArmazenada) {
   return hashCalculado === hashOriginal;
 }
 
-
-
 // Função para realizar o cadastro e navegar até a Home
   
 const handleCadastrar = async () => {

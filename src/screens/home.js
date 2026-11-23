@@ -325,10 +325,14 @@ export default function HomeScreen({ navigation, route }) {
             <Ionicons name="add-circle-outline" size={28} color="#000" />
           </TouchableOpacity>
 
-          {/* Trocar Usuário / Login */}
+           {/* Ícone de Perfil -> Abre tela com dados do usuário e botão Sair */}
           <TouchableOpacity
             style={styles.navButton}
-            onPress={() => navigation.replace('Login')}
+            onPress={() =>
+              navigation.navigate('Perfil', {
+                usuario: route?.params?.usuario
+              })
+            }
           >
             <Ionicons name="person" size={26} color="#000" />
           </TouchableOpacity>

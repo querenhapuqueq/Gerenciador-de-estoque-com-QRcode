@@ -356,3 +356,55 @@ export async function listarMovimentacoesPorFiltro(filtro = 'todos') {
 
   return registros;
 }
+
+// Atualizar o nome do usuário logado
+export async function atualizarNomeUsuario(usuarioId, novoNome) {
+  await inicializarBanco();
+  const database = await db;
+
+  const nomeFormatado = novoNome.trim();
+  if (!nomeFormatado) {
+    throw new Error('O nome não pode ficar em branco.');
+  }
+
+  await database.runAsync(
+    'UPDATE usuarios SET nome = ? WHERE id = ?',
+    [nomeFormatado, usuarioId]
+  );
+
+  return nomeFormatado;
+}
+
+// Alterar a senha validando a senha atual com bcryptjs
+export async function alterarSenhaUsuario(usuarioId, senhaAtual, novaSenha) {
+  await inicializarBanco();
+  const database = await db;
+
+  if (!novaSenha || novaSenha.length < 4) {
+    throw new Error('A nova senha deve ter pelo menos 4 caracteres.');
+  }
+
+  const usuario = await database.getFirstAsync(
+    'SELECT id, senha_hash FROM usuarios WHERE id = ?',
+    [usuarioId]
+  );
+
+  if (!usuario) {
+    throw new Error('Usuário não encontrado.');
+  }
+
+  const senhaAtualCorreta = bcrypt.compareSync(senhaAtual, usuario.senha_hash);
+  if (!senhaAtualCorreta) {
+    throw new Error('A senha atual está incorreta.');
+  }
+
+  const salt = bcrypt.genSaltSync(10);
+  const novoHash = bcrypt.hashSync(novaSenha, salt);
+
+  await database.runAsync(
+    'UPDATE usuarios SET senha_hash = ? WHERE id = ?',
+    [novoHash, usuarioId]
+  );
+
+  return true;
+}

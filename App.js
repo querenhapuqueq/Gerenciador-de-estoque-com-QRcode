@@ -1,4 +1,4 @@
-import 'react-native-gesture-handler'; // <-- Sempre na primeira linha
+import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import HomeScreen from './src/screens/home';
 import CadastroTecidoScreen from './src/screens/cadastroTecido';
 import ListaTecidosScreen from './src/screens/listaTecidos';
 import HistoricoMovimentacoesScreen from './src/screens/historicoMovimentacoes';
+import PerfilScreen from './src/screens/perfil';
 
 const Stack = createNativeStackNavigator();
 
@@ -31,10 +32,8 @@ export default function App() {
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="CadastroTecido" component={CadastroTecidoScreen} />
         <Stack.Screen name="ListaTecidos" component={ListaTecidosScreen} />
-        <Stack.Screen
-          name="HistoricoMovimentacoes"
-          component={HistoricoMovimentacoesScreen}
-        />
+        <Stack.Screen name="HistoricoMovimentacoes" component={HistoricoMovimentacoesScreen}/>
+        <Stack.Screen name="Perfil" component={PerfilScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
