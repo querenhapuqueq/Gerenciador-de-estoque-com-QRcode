@@ -12,6 +12,7 @@ import CadastroTecidoScreen from './src/screens/cadastroTecido';
 import ListaTecidosScreen from './src/screens/listaTecidos';
 import HistoricoMovimentacoesScreen from './src/screens/historicoMovimentacoes';
 import PerfilScreen from './src/screens/perfil';
+import LeitorQrCodeScreen from './src/screens/leitorQRcode';
 
 const Stack = createNativeStackNavigator();
 
@@ -23,10 +24,7 @@ export default function App() {
 
   return (
     <NavigationContainer>
-      <Stack.Navigator 
-        initialRouteName="Login"
-        screenOptions={{ headerShown: false }}
-      >
+      <Stack.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Cadastro" component={RegisterScreen} />
         <Stack.Screen name="Home" component={HomeScreen} />
@@ -34,6 +32,7 @@ export default function App() {
         <Stack.Screen name="ListaTecidos" component={ListaTecidosScreen} />
         <Stack.Screen name="HistoricoMovimentacoes" component={HistoricoMovimentacoesScreen}/>
         <Stack.Screen name="Perfil" component={PerfilScreen} />
+        <Stack.Screen name="LeitorQrCode" component={LeitorQrCodeScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

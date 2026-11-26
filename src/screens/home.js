@@ -300,11 +300,15 @@ export default function HomeScreen({ navigation, route }) {
 
         {/* BARRA DE NAVEGAÇÃO INFERIOR */}
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.navButton}>
+          {/* 1º botão: Câmera Leitor de QR Code */}
+          <TouchableOpacity
+            style={styles.navButton}
+            onPress={() => navigation.navigate('LeitorQrCode')}
+          >
             <MaterialCommunityIcons name="qrcode-scan" size={26} color="#000" />
           </TouchableOpacity>
 
-          {/* Lista de Tecidos */}
+          {/* 2º botão: Estoque de Tecidos (Entradas, Saídas e Ver QR) */}
           <TouchableOpacity
             style={styles.navButton}
             onPress={() => navigation.navigate('ListaTecidos')}
@@ -320,8 +324,7 @@ export default function HomeScreen({ navigation, route }) {
           {/* Cadastrar Novo Tecido */}
           <TouchableOpacity
             style={styles.navButton}
-            onPress={() => navigation.navigate('CadastroTecido')}
-          >
+            onPress={() => navigation.navigate('CadastroTecido')}>
             <Ionicons name="add-circle-outline" size={28} color="#000" />
           </TouchableOpacity>
 

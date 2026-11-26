@@ -408,3 +408,29 @@ export async function alterarSenhaUsuario(usuarioId, senhaAtual, novaSenha) {
 
   return true;
 }
+
+// Buscar um tecido específico pelo código QR escaneado
+export async function buscarProdutoPorQrCode(qrCode) {
+  await inicializarBanco();
+  const database = await db;
+
+  const codigoLimpo = String(qrCode || '').trim();
+  if (!codigoLimpo) return null;
+
+  // 1. Busca exata (ignorando espaços e maiúsculas/minúsculas)
+  let produto = await database.getFirstAsync(
+    'SELECT * FROM produtos WHERE LOWER(TRIM(qr_code)) = LOWER(?)',
+    [codigoLimpo]
+  );
+
+  // 2. Fallback: se o QR lido for "TEC-1" (gerado para item sem código), busca pelo ID
+  if (!produto && /^tec-\d+$/i.test(codigoLimpo)) {
+    const idExtraido = parseInt(codigoLimpo.replace(/[^0-9]/g, ''), 10);
+    produto = await database.getFirstAsync(
+      'SELECT * FROM produtos WHERE id = ?',
+      [idExtraido]
+    );
+  }
+
+  return produto || null;
+}

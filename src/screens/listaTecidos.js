@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,14 +7,17 @@ import {
   StyleSheet,
   FlatList,
   Alert,
-  ActivityIndicator,
   Modal,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import QRCode from 'react-native-qrcode-svg';
+import { captureRef } from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
 import {
   listarProdutos,
   excluirProduto,
@@ -26,13 +29,18 @@ export default function ListaTecidosScreen({ navigation }) {
   const [busca, setBusca] = useState('');
   const [carregando, setCarregando] = useState(true);
 
-  // Estados do Modal de Movimentação
-  const [modalVisivel, setModalVisivel] = useState(false);
+  // Estados do Modal de Movimentação (Entrada / Saída / Ajuste)
+  const [modalMovVisivel, setModalMovVisivel] = useState(false);
   const [tecidoSelecionado, setTecidoSelecionado] = useState(null);
-  const [tipoMovimento, setTipoMovimento] = useState('saida'); // 'entrada' | 'saida' | 'ajuste do dia'
+  const [tipoMovimento, setTipoMovimento] = useState('entrada');
   const [qtdMovimento, setQtdMovimento] = useState('');
   const [observacao, setObservacao] = useState('');
   const [processando, setProcessando] = useState(false);
+
+  // Estados do Modal de Visualização / Compartilhamento do QR Code
+  const [modalQrVisivel, setModalQrVisivel] = useState(false);
+  const [tecidoQr, setTecidoQr] = useState(null);
+  const etiquetaRef = useRef(null);
 
   const carregarDados = async () => {
     setCarregando(true);
@@ -41,7 +49,6 @@ export default function ListaTecidosScreen({ navigation }) {
       setTecidos(lista);
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível carregar os tecidos.');
-      console.error(error);
     } finally {
       setCarregando(false);
     }
@@ -53,12 +60,75 @@ export default function ListaTecidosScreen({ navigation }) {
     }, [])
   );
 
-  const abrirModalMovimentacao = (tecido, tipoInicial = 'saida') => {
+  const obterValorQr = (tecido) => {
+    if (!tecido) return '';
+    return tecido.qr_code && String(tecido.qr_code).trim() !== ''
+      ? String(tecido.qr_code).trim()
+      : `TEC-${tecido.id}`;
+  };
+
+  const obterComposicaoFormatada = (tecido) => {
+    if (!tecido) return '';
+    return [tecido.composicao, tecido.tipo, tecido.cor, tecido.tamanho]
+      .filter(Boolean)
+      .join(' • ');
+  };
+
+  const tecidosFiltrados = tecidos.filter((item) => {
+    const termo = busca.toLowerCase().trim();
+    if (!termo) return true;
+    return (
+      item.nome?.toLowerCase().includes(termo) ||
+      item.cor?.toLowerCase().includes(termo) ||
+      item.tipo?.toLowerCase().includes(termo) ||
+      item.composicao?.toLowerCase().includes(termo) ||
+      obterValorQr(item).toLowerCase().includes(termo)
+    );
+  });
+
+  const abrirModalMovimentacao = (tecido, tipoInicial) => {
     setTecidoSelecionado(tecido);
     setTipoMovimento(tipoInicial);
     setQtdMovimento('');
     setObservacao('');
-    setModalVisivel(true);
+    setModalMovVisivel(true);
+  };
+
+  const abrirModalQrCode = (tecido) => {
+    setTecidoQr(tecido);
+    setModalQrVisivel(true);
+  };
+
+  const handleCompartilharQrCode = async () => {
+    if (!etiquetaRef.current || !tecidoQr) return;
+
+    const nomeTecido = tecidoQr.nome;
+
+    try {
+      const uri = await captureRef(etiquetaRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+
+      const disponivel = await Sharing.isAvailableAsync();
+      if (!disponivel) {
+        Alert.alert('Aviso', 'O compartilhamento não está disponível neste dispositivo.');
+        return;
+      }
+
+      setModalQrVisivel(false);
+
+      setTimeout(async () => {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'image/png',
+          dialogTitle: `Etiqueta QR Code - ${nomeTecido}`,
+        });
+      }, 300);
+    } catch (error) {
+      console.error('Erro ao compartilhar QR:', error);
+      Alert.alert('Erro', 'Não foi possível exportar a imagem da etiqueta.');
+    }
   };
 
   const handleConfirmarMovimentacao = async () => {
@@ -76,23 +146,22 @@ export default function ListaTecidosScreen({ navigation }) {
         produtoId: tecidoSelecionado.id,
         tipo: tipoMovimento,
         quantidade: qtdMovimento,
-        observacao
+        observacao,
       });
 
-      setModalVisivel(false);
-      carregarDados();
-      Alert.alert('Sucesso!', 'Estoque atualizado e movimentação registrada.');
+      setModalMovVisivel(false);
+      await carregarDados();
     } catch (error) {
-      Alert.alert('Não foi possível movimentar', error.message || 'Erro ao atualizar estoque.');
+      Alert.alert('Não foi possível movimentar', error.message || 'Erro ao registrar.');
     } finally {
       setProcessando(false);
     }
   };
 
-  const handleExcluir = (id, nome) => {
+  const handleExcluir = (item) => {
     Alert.alert(
       'Excluir tecido',
-      `Deseja realmente remover "${nome}" do estoque?`,
+      `Deseja realmente remover "${item.nome}" e seu histórico?`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -100,160 +169,114 @@ export default function ListaTecidosScreen({ navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await excluirProduto(id);
-              carregarDados();
+              await excluirProduto(item.id);
+              await carregarDados();
             } catch (error) {
               Alert.alert('Erro', 'Não foi possível excluir o tecido.');
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
-  const tecidosFiltrados = tecidos.filter((item) => {
-    const termo = busca.trim().toLowerCase();
-    if (!termo) return true;
+  const renderItem = ({ item }) => {
+    const subtitulo = obterComposicaoFormatada(item);
 
     return (
-      item.nome?.toLowerCase().includes(termo) ||
-      item.cor?.toLowerCase().includes(termo) ||
-      item.tipo?.toLowerCase().includes(termo) ||
-      item.qr_code?.toLowerCase().includes(termo)
-    );
-  });
+      <View style={styles.card}>
+        <View style={styles.cardTopo}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardNome}>{item.nome}</Text>
+            {subtitulo ? <Text style={styles.cardSubtitulo}>{subtitulo}</Text> : null}
+          </View>
 
-  const formatarMoeda = (valor) => {
-    return Number(valor || 0).toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    });
-  };
-
-  const renderItem = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardTitulo}>{item.nome}</Text>
-          {(item.tipo || item.cor) && (
-            <Text style={styles.cardSubtitulo}>
-              {[item.tipo, item.cor].filter(Boolean).join(' • ')}
-            </Text>
-          )}
-        </View>
-
-        <TouchableOpacity
-          onPress={() => handleExcluir(item.id, item.nome)}
-          style={styles.botaoExcluir}
-        >
-          <Ionicons name="trash-outline" size={18} color="#ef4444" />
-        </TouchableOpacity>
-      </View>
-
-      {/* DETALHES DE ESTOQUE E PREÇO */}
-      <View style={styles.cardInfoLinha}>
-        <View style={styles.badgeEstoque}>
-          <Ionicons name="layers-outline" size={14} color="#168bea" />
-          <Text style={styles.textoEstoque}>
-            {String(item.quantidade).replace('.', ',')} {item.unidade}
-          </Text>
-        </View>
-
-        {item.tamanho ? (
-          <Text style={styles.textoDetalhe}>Larg: {item.tamanho}</Text>
-        ) : null}
-
-        {item.preco > 0 ? (
-          <Text style={styles.textoPreco}>
-            {formatarMoeda(item.preco)}/{item.unidade === 'metros' ? 'm' : item.unidade}
-          </Text>
-        ) : null}
-      </View>
-
-      {/* RODAPÉ: QR CODE + BOTÕES RÁPIDOS DE ENTRADA/SAÍDA */}
-      <View style={styles.cardFooter}>
-        <View style={styles.qrInfo}>
-          {item.qr_code ? (
-            <>
-              <Ionicons name="qr-code-outline" size={14} color="#555" />
-              <Text style={styles.textoQr}>{item.qr_code}</Text>
-            </>
-          ) : (
-            <Text style={styles.semQr}>Sem etiqueta QR</Text>
-          )}
-        </View>
-
-        <View style={styles.acoesLinha}>
           <TouchableOpacity
-            style={[styles.botaoAcaoRapida, styles.botaoEntrada]}
+            onPress={() => handleExcluir(item)}
+            style={styles.botaoExcluir}
+          >
+            <Ionicons name="trash-outline" size={18} color="#ff1744" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.cardMeio}>
+          <View style={styles.saldoBadge}>
+            <Text style={styles.saldoLabel}>EM ESTOQUE</Text>
+            <Text style={styles.saldoValor}>
+              {String(item.quantidade).replace('.', ',')} {item.unidade}
+            </Text>
+          </View>
+
+          <View style={styles.qrBadge}>
+            <MaterialCommunityIcons name="qrcode" size={16} color="#168bea" />
+            <Text style={styles.qrTexto} numberOfLines={1}>
+              {obterValorQr(item)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.acoesRow}>
+          <TouchableOpacity
+            style={[styles.botaoAcao, { backgroundColor: '#e6f7f4' }]}
             onPress={() => abrirModalMovimentacao(item, 'entrada')}
           >
-            <Ionicons name="add" size={14} color="#fff" />
-            <Text style={styles.textoAcaoRapida}>ENTRADA</Text>
+            <Ionicons name="add-circle-outline" size={16} color="#009688" />
+            <Text style={[styles.textoAcao, { color: '#009688' }]}>ENTRADA</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.botaoAcaoRapida, styles.botaoSaida]}
+            style={[styles.botaoAcao, { backgroundColor: '#ffebee' }]}
             onPress={() => abrirModalMovimentacao(item, 'saida')}
           >
-            <Ionicons name="remove" size={14} color="#fff" />
-            <Text style={styles.textoAcaoRapida}>SAÍDA</Text>
+            <Ionicons name="remove-circle-outline" size={16} color="#ff1744" />
+            <Text style={[styles.textoAcao, { color: '#ff1744' }]}>SAÍDA</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.botaoAcao, { backgroundColor: '#e0f2fe' }]}
+            onPress={() => abrirModalQrCode(item)}
+          >
+            <MaterialCommunityIcons name="qrcode-scan" size={15} color="#168bea" />
+            <Text style={[styles.textoAcao, { color: '#168bea' }]}>VER QR</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* CABEÇALHO */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.botaoVoltar}
-        >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.botaoVoltar}>
           <Ionicons name="arrow-back" size={22} color="#111" />
         </TouchableOpacity>
-
         <Text style={styles.headerTitulo}>ESTOQUE DE TECIDOS</Text>
-
         <TouchableOpacity
           onPress={() => navigation.navigate('CadastroTecido')}
-          style={styles.botaoAdicionarHeader}
+          style={styles.botaoVoltar}
         >
-          <Ionicons name="add" size={24} color="#168bea" />
+          <Ionicons name="add-circle" size={24} color="#168bea" />
         </TouchableOpacity>
       </View>
 
-      {/* BARRA DE PESQUISA */}
-      <View style={styles.buscaWrapper}>
-        <View style={styles.buscaContainer}>
-          <Ionicons name="search" size={18} color="#777" />
+      <View style={styles.searchWrapper}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search-outline" size={18} color="#555" />
           <TextInput
-            style={styles.buscaInput}
-            placeholder="Buscar por nome, cor, tipo ou QR Code..."
+            style={styles.searchInput}
+            placeholder="Buscar por nome, composição, cor ou QR Code..."
             placeholderTextColor="#888"
             value={busca}
             onChangeText={setBusca}
-            autoCapitalize="none"
           />
           {busca.length > 0 && (
             <TouchableOpacity onPress={() => setBusca('')}>
-              <Ionicons name="close-circle" size={18} color="#999" />
+              <Ionicons name="close-circle" size={18} color="#888" />
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* CONTADOR */}
-      <View style={styles.contadorContainer}>
-        <Text style={styles.contadorTexto}>
-          {tecidosFiltrados.length}{' '}
-          {tecidosFiltrados.length === 1 ? 'tecido encontrado' : 'tecidos encontrados'}
-        </Text>
-      </View>
-
-      {/* LISTA */}
       {carregando ? (
         <View style={styles.centro}>
           <ActivityIndicator size="large" color="#168bea" />
@@ -266,25 +289,93 @@ export default function ListaTecidosScreen({ navigation }) {
           contentContainerStyle={styles.listaContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <View style={styles.vazioContainer}>
-              <Ionicons name="file-tray-outline" size={48} color="#cbd5e1" />
+            <View style={styles.vazioBox}>
+              <MaterialCommunityIcons name="package-variant" size={48} color="#cbd5e1" />
               <Text style={styles.vazioTitulo}>Nenhum tecido encontrado</Text>
               <Text style={styles.vazioSubtitulo}>
-                {busca
-                  ? 'Tente buscar por outro termo ou código.'
-                  : 'Toque no botão "+" acima para cadastrar o primeiro rolo.'}
+                Toque no "+" acima para cadastrar um novo rolo de tecido.
               </Text>
             </View>
           }
         />
       )}
 
-      {/* MODAL DE MOVIMENTAÇÃO */}
+      {/* MODAL 1: VISUALIZAR E COMPARTILHAR ETIQUETA QR CODE */}
       <Modal
-        visible={modalVisivel}
+        visible={modalQrVisivel}
         transparent
         animationType="fade"
-        onRequestClose={() => setModalVisivel(false)}
+        onRequestClose={() => setModalQrVisivel(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { alignItems: 'center' }]}>
+            <View style={[styles.modalHeader, { width: '100%' }]}>
+              <Text style={styles.modalTitulo}>ETIQUETA DO TECIDO</Text>
+              <TouchableOpacity onPress={() => setModalQrVisivel(false)}>
+                <Ionicons name="close" size={22} color="#555" />
+              </TouchableOpacity>
+            </View>
+
+            {tecidoQr && (
+              <>
+                {/* Cartão de etiqueta capturado com fundo branco sólido */}
+                <View
+                  ref={etiquetaRef}
+                  collapsable={false}
+                  style={styles.etiquetaBox}
+                >
+                  <View style={styles.etiquetaTopo}>
+                    <MaterialCommunityIcons name="tag-outline" size={14} color="#008585" />
+                    <Text style={styles.etiquetaTagTopo}>IDENTIFICAÇÃO DE TECIDO</Text>
+                  </View>
+
+                  <Text style={styles.etiquetaNome}>{tecidoQr.nome.toUpperCase()}</Text>
+
+                  {obterComposicaoFormatada(tecidoQr) ? (
+                    <View style={styles.etiquetaComposicaoBox}>
+                      <Text style={styles.etiquetaComposicaoLabel}>COMPOSIÇÃO / DETALHES</Text>
+                      <Text style={styles.etiquetaComposicaoTexto}>
+                        {obterComposicaoFormatada(tecidoQr)}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  <View style={styles.qrWrapper}>
+                    <QRCode
+                      value={obterValorQr(tecidoQr)}
+                      size={185}
+                      quietZone={16}
+                      color="#000000"
+                      backgroundColor="#ffffff"
+                    />
+                  </View>
+
+                  <View style={styles.etiquetaRodape}>
+                    <Text style={styles.etiquetaCodigo}>{obterValorQr(tecidoQr)}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.botaoCompartilharQr}
+                  onPress={handleCompartilharQrCode}
+                >
+                  <Ionicons name="share-social-outline" size={18} color="#fff" />
+                  <Text style={styles.textoBotaoCompartilhar}>
+                    COMPARTILHAR / IMPRIMIR ETIQUETA
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL 2: ENTRADA / SAÍDA / AJUSTE */}
+      <Modal
+        visible={modalMovVisivel}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalMovVisivel(false)}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -293,7 +384,7 @@ export default function ListaTecidosScreen({ navigation }) {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitulo}>MOVIMENTAR ESTOQUE</Text>
-              <TouchableOpacity onPress={() => setModalVisivel(false)}>
+              <TouchableOpacity onPress={() => setModalMovVisivel(false)}>
                 <Ionicons name="close" size={22} color="#555" />
               </TouchableOpacity>
             </View>
@@ -302,29 +393,28 @@ export default function ListaTecidosScreen({ navigation }) {
               <View style={styles.modalInfoProduto}>
                 <Text style={styles.modalNomeProduto}>{tecidoSelecionado.nome}</Text>
                 <Text style={styles.modalSaldoAtual}>
-                  Saldo atual:{' '}
-                  <Text style={{ fontWeight: 'bold', color: '#168bea' }}>
-                    {String(tecidoSelecionado.quantidade).replace('.', ',')}{' '}
-                    {tecidoSelecionado.unidade}
-                  </Text>
+                  Saldo atual: {String(tecidoSelecionado.quantidade).replace('.', ',')}{' '}
+                  {tecidoSelecionado.unidade}
                 </Text>
               </View>
             )}
 
-            {/* SELETOR DE TIPO DE MOVIMENTAÇÃO */}
-            <Text style={styles.modalLabel}>TIPO DE OPERAÇÃO:</Text>
+            <Text style={styles.modalLabel}>TIPO DE MOVIMENTAÇÃO:</Text>
             <View style={styles.tipoRow}>
               <TouchableOpacity
                 style={[
                   styles.tipoBotao,
-                  tipoMovimento === 'entrada' && { backgroundColor: '#009688', borderColor: '#009688' }
+                  tipoMovimento === 'entrada' && {
+                    backgroundColor: '#009688',
+                    borderColor: '#009688',
+                  },
                 ]}
                 onPress={() => setTipoMovimento('entrada')}
               >
                 <Text
                   style={[
                     styles.tipoTexto,
-                    tipoMovimento === 'entrada' && { color: '#fff' }
+                    tipoMovimento === 'entrada' && { color: '#fff' },
                   ]}
                 >
                   ENTRADA (+)
@@ -334,14 +424,17 @@ export default function ListaTecidosScreen({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.tipoBotao,
-                  tipoMovimento === 'saida' && { backgroundColor: '#ff1744', borderColor: '#ff1744' }
+                  tipoMovimento === 'saida' && {
+                    backgroundColor: '#ff1744',
+                    borderColor: '#ff1744',
+                  },
                 ]}
                 onPress={() => setTipoMovimento('saida')}
               >
                 <Text
                   style={[
                     styles.tipoTexto,
-                    tipoMovimento === 'saida' && { color: '#fff' }
+                    tipoMovimento === 'saida' && { color: '#fff' },
                   ]}
                 >
                   SAÍDA (-)
@@ -351,14 +444,17 @@ export default function ListaTecidosScreen({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.tipoBotao,
-                  tipoMovimento === 'ajuste do dia' && { backgroundColor: '#f59e0b', borderColor: '#f59e0b' }
+                  tipoMovimento === 'ajuste do dia' && {
+                    backgroundColor: '#f59e0b',
+                    borderColor: '#f59e0b',
+                  },
                 ]}
                 onPress={() => setTipoMovimento('ajuste do dia')}
               >
                 <Text
                   style={[
                     styles.tipoTexto,
-                    tipoMovimento === 'ajuste do dia' && { color: '#fff' }
+                    tipoMovimento === 'ajuste do dia' && { color: '#fff' },
                   ]}
                 >
                   AJUSTE
@@ -366,7 +462,6 @@ export default function ListaTecidosScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* QUANTIDADE */}
             <Text style={styles.modalLabel}>
               {tipoMovimento === 'ajuste do dia'
                 ? `NOVO SALDO REAL (${tecidoSelecionado?.unidade?.toUpperCase()}):`
@@ -374,7 +469,7 @@ export default function ListaTecidosScreen({ navigation }) {
             </Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Ex: 12,5"
+              placeholder="Ex: 10,5"
               placeholderTextColor="#888"
               value={qtdMovimento}
               onChangeText={setQtdMovimento}
@@ -382,23 +477,21 @@ export default function ListaTecidosScreen({ navigation }) {
               autoFocus
             />
 
-            {/* OBSERVAÇÃO */}
             <Text style={styles.modalLabel}>OBSERVAÇÃO (OPCIONAL):</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Ex: Corte pedido #104, reposição..."
+              placeholder="Ex: Corte pedido #42, reposição..."
               placeholderTextColor="#888"
               value={observacao}
               onChangeText={setObservacao}
             />
 
-            {/* BOTÃO CONFIRMAR */}
             <TouchableOpacity
               style={[
                 styles.modalBotaoConfirmar,
                 tipoMovimento === 'saida' && { backgroundColor: '#ff1744' },
                 tipoMovimento === 'entrada' && { backgroundColor: '#009688' },
-                tipoMovimento === 'ajuste do dia' && { backgroundColor: '#f59e0b' }
+                tipoMovimento === 'ajuste do dia' && { backgroundColor: '#f59e0b' },
               ]}
               onPress={handleConfirmarMovimentacao}
               disabled={processando}
@@ -406,7 +499,7 @@ export default function ListaTecidosScreen({ navigation }) {
               {processando ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.modalTextoConfirmar}>CONFIRMAR ATUALIZAÇÃO</Text>
+                <Text style={styles.modalTextoConfirmar}>CONFIRMAR</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -419,7 +512,7 @@ export default function ListaTecidosScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f6f8',
   },
   header: {
     flexDirection: 'row',
@@ -434,43 +527,30 @@ const styles = StyleSheet.create({
   botaoVoltar: {
     padding: 4,
   },
-  botaoAdicionarHeader: {
-    padding: 4,
-  },
   headerTitulo: {
     fontSize: 13,
     fontWeight: 'bold',
     color: '#111',
   },
-  buscaWrapper: {
+  searchWrapper: {
     paddingHorizontal: '6%',
-    paddingTop: 14,
-    paddingBottom: 8,
+    paddingVertical: 12,
   },
-  buscaContainer: {
-    height: 42,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#d5dbe0',
-    borderRadius: 12,
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
     paddingHorizontal: 12,
+    height: 42,
   },
-  buscaInput: {
+  searchInput: {
     flex: 1,
+    marginLeft: 8,
     fontSize: 12,
     color: '#111',
-    marginLeft: 8,
-  },
-  contadorContainer: {
-    paddingHorizontal: '6%',
-    paddingBottom: 8,
-  },
-  contadorTexto: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '600',
   },
   listaContent: {
     paddingHorizontal: '6%',
@@ -478,19 +558,19 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
   },
-  cardHeader: {
+  cardTopo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  cardTitulo: {
-    fontSize: 14,
+  cardNome: {
+    fontSize: 15,
     fontWeight: 'bold',
     color: '#111',
   },
@@ -502,83 +582,62 @@ const styles = StyleSheet.create({
   botaoExcluir: {
     padding: 4,
   },
-  cardInfoLinha: {
+  cardMeio: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
+    gap: 8,
   },
-  badgeEstoque: {
+  saldoBadge: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  saldoLabel: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#64748b',
+  },
+  saldoValor: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#111',
+    marginTop: 1,
+  },
+  qrBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#eff6ff',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 8,
     borderRadius: 8,
-    gap: 5,
+    gap: 6,
+    maxWidth: '52%',
   },
-  textoEstoque: {
-    fontSize: 12,
+  qrTexto: {
+    fontSize: 10,
     fontWeight: 'bold',
     color: '#168bea',
+    flexShrink: 1,
   },
-  textoDetalhe: {
-    fontSize: 11,
-    color: '#475569',
-  },
-  textoPreco: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#16a34a',
-  },
-  cardFooter: {
+  acoesRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
-  },
-  qrInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    flex: 1,
-  },
-  textoQr: {
-    fontSize: 10,
-    color: '#555',
-    fontFamily: 'monospace',
-  },
-  semQr: {
-    fontSize: 10,
-    color: '#94a3b8',
-    fontStyle: 'italic',
-  },
-  acoesLinha: {
-    flexDirection: 'row',
     gap: 6,
   },
-  botaoAcaoRapida: {
+  botaoAcao: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    justifyContent: 'center',
+    paddingVertical: 8,
     borderRadius: 8,
-    gap: 3,
+    gap: 4,
   },
-  botaoEntrada: {
-    backgroundColor: '#009688',
-  },
-  botaoSaida: {
-    backgroundColor: '#ff1744',
-  },
-  textoAcaoRapida: {
-    color: '#fff',
+  textoAcao: {
     fontSize: 10,
     fontWeight: 'bold',
   },
@@ -587,17 +646,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  vazioContainer: {
+  vazioBox: {
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 60,
-    paddingHorizontal: 20,
   },
   vazioTitulo: {
     fontSize: 14,
     fontWeight: 'bold',
     color: '#475569',
-    marginTop: 12,
+    marginTop: 10,
   },
   vazioSubtitulo: {
     fontSize: 12,
@@ -605,11 +663,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
   },
-
-  /* ESTILOS DO MODAL */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     justifyContent: 'center',
     paddingHorizontal: 20,
   },
@@ -629,11 +685,106 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#111',
   },
+
+  /* DESIGN DA ETIQUETA COMPARTILHÁVEL */
+  etiquetaBox: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#008585',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    width: '100%',
+    marginTop: 4,
+  },
+  etiquetaTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e6f7f4',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    gap: 5,
+    marginBottom: 10,
+  },
+  etiquetaTagTopo: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#008585',
+    letterSpacing: 0.8,
+  },
+  etiquetaNome: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    textAlign: 'center',
+  },
+  etiquetaComposicaoBox: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+    alignItems: 'center',
+    width: '100%',
+  },
+  etiquetaComposicaoLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: '#64748b',
+    letterSpacing: 0.6,
+  },
+  etiquetaComposicaoTexto: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  qrWrapper: {
+    padding: 6,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginVertical: 14,
+  },
+  etiquetaRodape: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  etiquetaCodigo: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#168bea',
+    letterSpacing: 0.8,
+  },
+  botaoCompartilharQr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#168bea',
+    height: 44,
+    borderRadius: 10,
+    width: '100%',
+    marginTop: 16,
+    gap: 8,
+  },
+  textoBotaoCompartilhar: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   modalInfoProduto: {
     backgroundColor: '#f1f5f9',
     padding: 12,
     borderRadius: 10,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   modalNomeProduto: {
     fontSize: 14,
@@ -643,7 +794,7 @@ const styles = StyleSheet.create({
   modalSaldoAtual: {
     fontSize: 12,
     color: '#475569',
-    marginTop: 3,
+    marginTop: 4,
   },
   modalLabel: {
     fontSize: 10,
